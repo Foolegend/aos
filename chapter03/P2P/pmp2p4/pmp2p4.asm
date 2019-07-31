@@ -164,7 +164,7 @@ LABEL_BEGIN:
    mov byte [LABEL_DESC_CODE_RING3 + 7],ah
 
 
-   ;初始化3级别代码段描述符
+   ;初始化TSS段描述符
    xor eax,eax
    mov ax,cs
    shl eax,4
