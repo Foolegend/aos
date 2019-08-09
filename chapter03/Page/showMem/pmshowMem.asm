@@ -1,4 +1,3 @@
-;;lib.inc
 %include "pm.inc" ;常量,宏,以及一些说明
 org 0100h
 jmp LABEL_BEGIN
@@ -259,11 +258,6 @@ DispMemSize:
    pop edi
    pop esi
    ret
-
-   call szMemChkTitle  ;显示内存结构标题
-   call DispStr
-   add esp,4
-   call DispMemSize  ;显示内存信息
 
 SegCode32Len	equ	$ - LABEL_SEG_CODE32
 ; END of [SECTION .s32]

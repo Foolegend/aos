@@ -2,7 +2,7 @@
 # Makefile of pmtestx.asm (x=[1,2,3...])
 ##################################################
 
-SRC:=pmshowMem.asm
+SRC:=pmpm.asm
 BIN:=$(subst .asm,.com,$(SRC)) #${SRC}中的.asm会替换成.com
 #此句等价于pmprotect2real.com
 
