@@ -1,0 +1,18 @@
+##################################################
+# Makefile of pmtestx.asm (x=[1,2,3...])
+##################################################
+
+SRC:=pmpm.asm
+BIN:=$(subst .asm,.com,$(SRC)) #${SRC}中的.asm会替换成.com
+#此句等价于pmprotect2real.com
+
+.PHONY : everything
+
+everything : $(BIN)
+	sudo mount -o loop pm.img /mnt/floppy/
+	sudo cp $(BIN) /mnt/floppy/ -fv
+	sudo umount /mnt/floppy/
+
+$(BIN) : $(SRC)
+	nasm $< -o $@ 
+
