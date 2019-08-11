@@ -4,17 +4,15 @@ ProcFoo        equ 00401000h
 ProcBar        equ 00501000h
 ProcPagingDemo equ 00301000h
 
-PageDirBase0 equ 200000h;页目录开始地址
-PageTblBase0 equ 201000h;页目录开始地址
-PageDirBase1 equ 210000h;页目录开始地址
-PageTblBase1 equ 211000h;页目录开始地址
+PageDirBase0   equ 200000h;页目录开始地址
+PageTblBase0   equ 201000h;页目录开始地址
 org 0100h
 jmp LABEL_BEGIN
 [SECTION .gdt]
 ; GDT      段基址,  段界限,   段属性
 LABEL_GDT: Descriptor 0, 0, 0 ;空描述符
 LABEL_DESC_NORMAL:   Descriptor 0,         0ffffh, DA_DRW		; Normal 描述符
-LABEL_DESC_CODE32:   Descriptor 0, SegCode32Len-1, DA_CR+DA_32		; 非一致代码段, 32
+LABEL_DESC_CODE32:   Descriptor 0, SegCode32Len-1, DA_CR+DA_32		; 可读执行代码, 32
 LABEL_DESC_CODE16:   Descriptor 0,         0ffffh, DA_C			; 非一致代码段, 16
 LABEL_DESC_DATA:     Descriptor 0,      DataLen-1, DA_DRW		; Data
 LABEL_DESC_STACK:    Descriptor 0,     TopOfStack, DA_DRWA+DA_32 ;32位Stack
@@ -76,7 +74,6 @@ ADRStruct equ _ADRStruct - $$
    dwType equ _dwType - $$
 MemChkBuf equ _MemChkBuf - $$
 PageTableNumber equ _PageTableNumber - $$
-
 
 DataLen  equ $ - LABEL_DATA
 ;END of [SECTION .data1]
@@ -227,9 +224,9 @@ LABEL_SEG_CODE32:
   add esp, 4
   
   call DispMemSize ;显示内存信息
-  mov eax,4
-  push eax
-  call DispInt
+  ;mov eax,4
+  ;push eax
+  ;call DispInt
   call PagingDemo  ;演示分页后的地址寻址
   jmp SelectorCode16:0 ;到此停止
 
@@ -286,10 +283,9 @@ SetupPaging:
 PagingDemo:
    mov ax,cs
    mov ds,ax
-   ;call DispReturn
-   ;mov ebx,5
-   ;push ebx
-   ;call DispInt
+   ;mov ah,07h
+   ;mov al,'h'
+   ;mov [gs:(80*16+10)*2], ax
    mov ax,SelectorFlatRW
    mov es, ax
    
@@ -326,31 +322,11 @@ PagingDemo:
    ret
 
 
-;切换分页
+;切换分页,修改线性地址指向的地址
 PSwitch:
    ;初始化页目录
-   mov ax, SelectorFlatRW
+   mov ax, SelectorFlatRW ;主要在改变PTE指向的页表首地址时会用到
    mov es, ax
-   mov edi, PageDirBase1  
-   xor eax,eax
-   mov eax,PageTblBase1|PG_P|PG_USU|PG_RWW
-   mov ecx,[PageTableNumber]
-.1:
-   stosd 
-   add eax,4096
-   loop .1
-
-   mov eax,[PageTableNumber] ;页表个数
-   mov ebx,1024
-   mul ebx
-   mov ecx,eax
-   mov edi,PageTblBase1
-   xor eax,eax
-   mov eax,PG_P|PG_USU|PG_RWW
-.2:
-   stosd
-   add eax,4096
-   loop .2
    
    mov eax,LinearAddrDemo
    shr eax,22
@@ -363,11 +339,11 @@ PSwitch:
    mov ebx,4  ;页表内偏移地址
    mul ebx
    add eax,ecx ;算出PTE地址
-   add eax,PageTblBase1;算出PTE的地址
+   add eax,PageTblBase0;算出PTE的地址
    mov dword [es:eax], ProcBar|PG_P|PG_USU|PG_RWW ;强行让PTE指向0501000h,0501000h刚好是一个页表的首地址
    
-   mov eax,PageDirBase1
-   mov cr3,eax
+   mov eax,PageDirBase0  ;重新加载分页的线性地址
+   mov cr3,eax           ;将cr3重新赋值,以重新加载修改后的线性地址   
    jmp short .3
 .3:
    nop

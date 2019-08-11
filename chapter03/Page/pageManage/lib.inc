@@ -58,7 +58,8 @@ DispInt:
   mov al,'h'
   
   push edi
-  mov edi, [dwDispPos]
+  mov edi, [dwDispPos] ;相当于mov edi,ds:[dwDispPos],
+                       ;因此ds需要指向dwDispPos所在段的首地址
   mov [gs:edi], ax
   add edi,4
   mov [dwDispPos],edi
