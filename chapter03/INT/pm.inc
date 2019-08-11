@@ -12,6 +12,9 @@ DA_DPL1		EQU	  20h	; DPL = 1
 DA_DPL2		EQU	  40h	; DPL = 2
 DA_DPL3		EQU	  60h	; DPL = 3
 
+DA_386CGate	EQU	  8Ch	; 386 调用门类型值
+DA_386IGate	EQU	  8Eh	; 386 中断门类型值
+
 ;----------------------------------------------------------------------------
 ; 分页机制使用的常量说明
 ;----------------------------------------------------------------------------
@@ -27,7 +30,7 @@ SA_RPL3         EQU       3h    ;RPL = 3
 SA_TIG		EQU	0	; ┓TI
 SA_TIL		EQU	4	; ┛
 
-;描述符定义,传进来的参数会自动装到对应的字节中
+;GDT描述符定义,传进来的参数会自动装到对应的字节中
 ;usage:Descriptor Base,Limit,Attr
 %macro Descriptor 3
        dw %2&0FFFFh ;段界限1
@@ -36,3 +39,16 @@ SA_TIL		EQU	4	; ┛
        dw ((%2>>8)&0F00h)|(%3&0F0FFh) ;属性1 + 段界限2 + 属性2
        db (%1>>24)&0FFh ;段基址3
 %endmacro ;共8个字节
+
+; 门
+; usage: Gate Selector, Offset, DCount, Attr
+;        Selector:  dw
+;        Offset:    dd
+;        DCount:    db
+;        Attr:      db
+%macro Gate 4
+	dw	(%2 & 0FFFFh)				; 偏移 1				(2 字节)
+	dw	%1					; 选择子				(2 字节)
+	dw	(%3 & 1Fh) | ((%4 << 8) & 0FF00h)	; 属性					(2 字节)
+	dw	((%2 >> 16) & 0FFFFh)			; 偏移 2				(2 字节)
+%endmacro ; 共 8 字节
