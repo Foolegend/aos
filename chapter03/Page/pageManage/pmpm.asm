@@ -282,7 +282,7 @@ SetupPaging:
 ;测试分页机制------
 PagingDemo:
    mov ax,cs
-   mov ds,ax
+   mov ds,ax ;这两句赋值需要可执行程序段具有读权限,否则执行不了
    ;mov ah,07h
    ;mov al,'h'
    ;mov [gs:(80*16+10)*2], ax
