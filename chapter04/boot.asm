@@ -19,9 +19,139 @@ BS_BootSig     DB 29h ;扩展引导标记(29h)
 BS_VolID       DD 0   ;卷序列号
 BS_VolLab      DB 'OrangeS0.02' ;卷标,必须11个字节
 BS_FileSysType DB 'FAT12   ' ;文件系统类型,必须8个字节
+BaseOfStack    equ 07c00h ;堆栈基地址(栈底,从这个位置向低地址生成)
+BaseOfLoader   equ 09000h ;LOADER.BIN被加载到的位置---段地址
+OffsetOfLoader equ 0100h ;LOADER.BIN 被加载到的位置---偏移地址
+RootDirSectors equ 14    ;根目录占用14个扇区
+SectorNoOfRootDirectory equ 19  ;Root Directory第一个扇区号
+wRootDirSizeForLoop dw RootDirSectors  ;RootDirector的总扇区
+wSectorNo           dw 0  ;要读取的扇区的号
+bOdd                db 0  ;奇数还是偶数
+SectorNoOfFAT1     equ  1 ;FAT1的第一个扇区=BPB_RsvdSecCnt
+
+
+LoaderFileName     db "LOADER  BIN",0 ;LOADER.BIN之文件名
+MessageLength      equ 9   ;每个字符串的长度设成固定的9个长度
+BootMessage:       db "Booting  " 
+Message1:          db "Ready.   "
+Message2:          db "No Loader"
 
 LABEL_START:
+  mov ax, cs
+  mov ds, ax
+  mov es, ax
+  mov ss, ax
+  mov sp, BaseOfStack
 
+  xor ah, ah;
+  xor dl, dl ;软驱复位
+  int 13h
+  mov word [wSectorNo], SectorNoOfRootDirectory;Root目录区开始的位置
+LABEL_SEARCH_IN_ROOT_DIR_BEGIN:
+  cmp word [wRootDirSizeForLoop], 0 ;根目录未读的扇区的个数是否只剩下0个了
+  jz  LABEL_NO_LOADERBIN ;没找到
+  dec word [wRootDirSizeForLoop]  ;每遍历一次,根目录未读扇区少一个
+  mov ax, BaseOfLoader
+  mov es, ax
+  mov bx, OffsetOfLoarder
+  mov ax, [wSectorNo]    ;要读取的扇区号
+  mov cl, 1   ;读取一个扇区
+  call ReadSector  ;将一个扇区中的数据读入到es:bx指向的位置
+  mov si, LoaderFileName  ;ds:si指向文件名"LOADER BIN"
+  mov di, OffsetOfLoader
+  cld
+  mov dx, 10h  ;每个目录项32字节,因此一个扇区有16个项
+LABEL_SEARCH_FOR_LOADERBIN:
+  cmp dx, 0 ;看下32个字节是否读取完了
+  jz LABEL_GOTO_NEXT_SECTOR_IN_ROOT_DIR  ;当前目录项遍历完了,遍历该扇区中下一个目录项
+  dec dx  ;每读取一个字节,减1
+  mov cx, 11  ;LOADER BIN是11个字节
+LABEL_CMP_FILENAME:
+  cmp cx, 0
+  jz LABEL_FILENAME_FOUND ;如果比较了11个字符都相等,表示找到了
+  dec cx
+  lodsb  ;从ds:si指向的地址读取字符串,每次读取一个字节
+  cmp al, byte [es:di]
+  jz LABLE_GO_ON
+  jmp LABEL_DIFFERENT ;只要发现不一样的字符表明当前目录项不是自己想要的
+LABEL_GO_ON:
+  inc di
+  jmp LABEL_CMP_FILENAME ;循环遍历,将文件名中11个字符遍历完
+LABEL_DIFFERENT:
+  and di,0FFE0h  ;找不到将di指向当前目录项的起始地址处,
+                 ;因为每个目录项占32字节,因此目录项起始地址的最后5位二进制位为0
+  add di,20h     ;指向下一个目录项
+  mov si,LoaderFilename ;看下一个目录项中是否是想要的文件
+  jmp LABEL_SEARCH_FOR_LOADERBIN 
+LABEL_GOTO_NEXT_SECTOR_IN_ROOT_DIR:
+  add word [wSectorNo], 1 ;读取下一个扇区
+  jmp LABEL_SEARCH_IN_ROOT_DIR_BEGIN
+LABEL_NO_LOADERBIN:
+  mov dh, 2 ;没有找到,显示数组中第2个字符串
+  call DispStr    ;显示字符串
+%ifdef _BOOT_DEBUG_
+  mov ax, 4c00h
+  int 21h  ;回到dos
+%else
+  jmp $  ;到这里停止
+%endif 
+
+LABEL_FILENAME_FOUND:
+  jmp $  ;代码暂时停在这里
+  
+DispStr:
+  mov ax,MessageLength
+  mul dh
+  add ax,BootMessage
+  mov bp, ax
+  mov ax, ds
+  mov es, ax  ;es:bp指向字符串地址
+  mov cx, MeasageLength 
+  mov ax, 01301h ;AH=13h,AL=01h 
+  mov bx, 0007h  ;页号0(BH=0),黑底白字(BL=07h)
+  mov dl, 0
+  int 10h   ;用10号中断显示字符串
+  
+  ret
+
+GetFATEntry:
+  push es
+  push bx
+  push ax
+  mov  ax, BaseOfLoader
+  sub  ax, 0100h ;基地址后移,腾出4k空间用来读取LOADER.BIN数据
+  mov  es, ax
+  pop  ax  ;ax为蔟号
+  mov  byte [bOdd], 0
+  mov  bx, 3
+  mul  bx   ;ds:ax*3
+  mov  bx, 2
+  div  bx  ;ds:ax*3/2  指向的是一个蔟的起始地址字节
+  cmp  dx,0
+  jz   LABEL_EVEN
+  mov  byte [bOdd], 1
+LABEL_EVEN: ;偶数
+  xor dx, dx
+  mov bx, [BPB_BytsPerSec]
+  div bx  ; 商ax对应于FAT扇区号,余数dx对应扇区中的偏移字节数
+  push dx
+  mov  bx,0 ;es:bx=(BaseOfLoader-100):00
+  add  ax,SectorNoOfFAT1 ;此句之后的ax就是FATEntry所在的扇区号
+  mov  cl,2
+  call ReadSector ;读取FATEntry所在的扇区,一次读取两个,避免在边界发生错,
+                  ;因为一个FATEntry可能跨越两个扇区(512/12有余数)
+  pop dx
+  add bx,dx  ;指向扇区偏移地址
+  mov ax,[es:bx] ;
+  cmp byte [bOdd], 1
+  jnz  LABEL_EVEN_2
+  shr ax,4   ;若是奇数,则取2个字节的的高12位
+LABEL_EVEN_2:
+  and ax, 0FFFh  ;若是偶数,则取2个字节的低12位
+LABEL_GET_FAT_ENRY_OK:
+  pop bx
+  pop es
+  ret
 ReadSector:
   push bp
   mov  bp, sp
@@ -45,6 +175,11 @@ ReadSector:
 .GoOnReading:
   mov ah, 2 ;2类型代表int 13h是读取操作
   mov al, byte [bp-2] ;读al个扇区
-  int 13h
+  int 13h             ;读取数据放到[es:bx]指向的地址中
+  jc  .GoOnReading ;如果读取错误 CF会被置1,然后重新读取
+  add esp, 2
+  pop bp
+  ret
+  
   
   
