@@ -1,3 +1,24 @@
+;%define _BOOT_DEBUG_   ;做Boot Sector时一定将此行注释掉!
+%ifdef _BOOT_DEBUG_
+    org 0100h    ;调试时,编译成.COM文件时可以用
+%else
+    org 07c00h   ;Boot状态,Bios将把Boot Sector加载到0:7c00处并开始执行
+%endif
+
+%ifdef _Boot_DEBUG_
+BaseOfStack  equ  0100h ;调试状态堆栈基地址
+%else
+BaseOfStack  equ  07c00h ;Boot状态堆栈基地址
+%endif
+
+BaseOfLoader   equ 09000h ;LOADER.BIN被加载到的位置---段地址
+OffsetOfLoader equ 0100h ;LOADER.BIN 被加载到的位置---偏移地址
+RootDirSectors equ 14    ;根目录占用14个扇区
+SectorNoOfRootDirectory equ 19  ;Root Directory第一个扇区号
+SectorNoOfFAT1 equ  1 ;FAT1的第一个扇区=BPB_RsvdSecCnt
+DeltaSectorNo  equ  17 ;DeltaSectorNo=BPB_RsvdSecCnt+(BPB_NumFATS*FATs)-2 
+                       ;文件的开始Sector号 = DirEntry中的开始Sector号 + 根目录占用Sector数目 + DeltaSectorNo
+
 jmp short LABEL_START ;Start to boot.
 nop 
 BS_OEMName     DB 'ForrestY' ;OEM String,必须8个字符
@@ -19,16 +40,11 @@ BS_BootSig     DB 29h ;扩展引导标记(29h)
 BS_VolID       DD 0   ;卷序列号
 BS_VolLab      DB 'OrangeS0.02' ;卷标,必须11个字节
 BS_FileSysType DB 'FAT12   ' ;文件系统类型,必须8个字节
-BaseOfStack    equ 07c00h ;堆栈基地址(栈底,从这个位置向低地址生成)
-BaseOfLoader   equ 09000h ;LOADER.BIN被加载到的位置---段地址
-OffsetOfLoader equ 0100h ;LOADER.BIN 被加载到的位置---偏移地址
-RootDirSectors equ 14    ;根目录占用14个扇区
-SectorNoOfRootDirectory equ 19  ;Root Directory第一个扇区号
-wRootDirSizeForLoop dw RootDirSectors  ;RootDirector的总扇区
+
+;变量
 wSectorNo           dw 0  ;要读取的扇区的号
 bOdd                db 0  ;奇数还是偶数
-SectorNoOfFAT1     equ  1 ;FAT1的第一个扇区=BPB_RsvdSecCnt
-
+wRootDirSizeForLoop dw RootDirSectors  ;RootDirector的总扇区
 
 LoaderFileName     db "LOADER  BIN",0 ;LOADER.BIN之文件名
 MessageLength      equ 9   ;每个字符串的长度设成固定的9个长度
@@ -43,17 +59,29 @@ LABEL_START:
   mov ss, ax
   mov sp, BaseOfStack
 
+  ;清屏
+  mov ax, 0600h ;AH=6,AL=0h
+  mov bx, 0700h ;黑底白字(BL=07h)
+  mov cx, 0     ;左上角:(0,0)
+  mov dx, 0184fh
+  int 10h     ;10号中断
+  mov dh, 0 ;"Booting "
+  call DispStr  ;显示字符串
+  
   xor ah, ah;
   xor dl, dl ;软驱复位
   int 13h
+
+  ;下面在A盘的根目录寻找LOADER.BIN
   mov word [wSectorNo], SectorNoOfRootDirectory;Root目录区开始的位置
+  
 LABEL_SEARCH_IN_ROOT_DIR_BEGIN:
   cmp word [wRootDirSizeForLoop], 0 ;根目录未读的扇区的个数是否只剩下0个了
   jz  LABEL_NO_LOADERBIN ;没找到
   dec word [wRootDirSizeForLoop]  ;每遍历一次,根目录未读扇区少一个
   mov ax, BaseOfLoader
   mov es, ax
-  mov bx, OffsetOfLoarder
+  mov bx, OffsetOfLoader
   mov ax, [wSectorNo]    ;要读取的扇区号
   mov cl, 1   ;读取一个扇区
   call ReadSector  ;将一个扇区中的数据读入到es:bx指向的位置
@@ -72,7 +100,7 @@ LABEL_CMP_FILENAME:
   dec cx
   lodsb  ;从ds:si指向的地址读取字符串,每次读取一个字节
   cmp al, byte [es:di]
-  jz LABLE_GO_ON
+  jz LABEL_GO_ON
   jmp LABEL_DIFFERENT ;只要发现不一样的字符表明当前目录项不是自己想要的
 LABEL_GO_ON:
   inc di
@@ -81,7 +109,7 @@ LABEL_DIFFERENT:
   and di,0FFE0h  ;找不到将di指向当前目录项的起始地址处,
                  ;因为每个目录项占32字节,因此目录项起始地址的最后5位二进制位为0
   add di,20h     ;指向下一个目录项
-  mov si,LoaderFilename ;看下一个目录项中是否是想要的文件
+  mov si,LoaderFileName ;看下一个目录项中是否是想要的文件
   jmp LABEL_SEARCH_FOR_LOADERBIN 
 LABEL_GOTO_NEXT_SECTOR_IN_ROOT_DIR:
   add word [wSectorNo], 1 ;读取下一个扇区
@@ -96,9 +124,48 @@ LABEL_NO_LOADERBIN:
   jmp $  ;到这里停止
 %endif 
 
-LABEL_FILENAME_FOUND:
-  jmp $  ;代码暂时停在这里
+LABEL_FILENAME_FOUND:  ;找到LOADER.BIN后便开始加载这个文件
+  mov ax, RootDirSectors
+  and di, 0FFE0h ;di->当前目录条目的开始地址(即LOADER.BIN文件的目录项)
+  add di, 01Ah   ;di->移动到目录项中,首蔟所在的位置中
+  mov cx, word [es:di]
+  push cx    ;将首蔟在FAT中的序号压入堆栈
+  add cx, ax
+  add cx, DeltaSectorNo ;cl<-LOADER.BIN的起始扇区号
+  mov ax, BaseOfLoader
+  mov es, ax       
+  mov bx, OffsetOfLoader ;数据会加载到BaseOfLoader:OffsetOfLoader指定的位置处
+  mov ax, cx   ;ax<- 读取数据的起始Setctor号
+
+LABEL_GOON_LOADING_FILE:
+  push ax  
+  push bx
+  mov ah, 0Eh
+  mov al, '.'
+  mov bl, 0Fh  ;/Booting......
+  int 10h   ;
+  pop bx
+  pop ax
   
+  mov cl, 1
+  call ReadSector
+  pop ax     ;取出此Sector在FAT中的扇区号
+  call GetFATEntry  ;获取下一个扇区号,保存到ax中
+  cmp ax, 0FFFh
+  jz  LABEL_FILE_LOADED
+  push ax  ;保存Sector在FAT中的序号
+  mov  dx, RootDirSectors
+  add  ax, dx
+  add  ax, DeltaSectorNo
+  add  bx, [BPB_BytsPerSec] ;es:bx偏移512字节,用来存储下一个扇区
+  jmp  LABEL_GOON_LOADING_FILE
+
+LABEL_FILE_LOADED:
+  mov dh, 1
+  call DispStr  ;显示字符串
+  
+  jmp BaseOfLoader: OffsetOfLoader ;这一句正式跳转到已加载到内存中LOADER.BIN的开始处,开始执行LOADER.BIN的代码
+  ;Boot Sector的使命到此结束
 DispStr:
   mov ax,MessageLength
   mul dh
@@ -106,7 +173,7 @@ DispStr:
   mov bp, ax
   mov ax, ds
   mov es, ax  ;es:bp指向字符串地址
-  mov cx, MeasageLength 
+  mov cx, MessageLength 
   mov ax, 01301h ;AH=13h,AL=01h 
   mov bx, 0007h  ;页号0(BH=0),黑底白字(BL=07h)
   mov dl, 0
@@ -181,5 +248,5 @@ ReadSector:
   pop bp
   ret
   
-  
-  
+times 	510-($-$$)	db	0	; 填充剩下的空间，使生成的二进制代码恰好为512字节
+dw 	0xaa55				; 结束标志 
