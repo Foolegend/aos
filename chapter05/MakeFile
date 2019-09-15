@@ -1,0 +1,16 @@
+##################################################
+# Makefile
+##################################################
+
+SRCBOOT:=hello.asm
+BINBOOT:=$(subst .asm,.o,$(SRCBOOT)) 
+
+
+.PHONY : everything
+
+everything : $(BINBOOT) hello
+
+$(BINBOOT) : $(SRCBOOT)
+	nasm -f elf64 $< -o $@ 
+hello : hello.o
+	ld -s hello.o -o hello
