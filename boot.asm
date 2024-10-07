@@ -1,4 +1,9 @@
-org 07c00h ;告诉编译器程序加载到7c00地址处
+;%define _BOOT_DEBUG_
+%ifdef _BOOT_DEBUG_
+ org 0100h
+%else
+ org 07c00h ;告诉编译器程序加载到7c00地址处
+%endif
 mov ax, cs
 mov ds, ax
 mov es, ax
